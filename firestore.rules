@@ -162,12 +162,7 @@ service cloud.firestore {
                 || resource.data.adminId == null
                 || resource.data.adminId == ''));
 
-      allow delete: if isSuperAdmin()
-        || (isAdmin() && (
-              resource.data.adminId == request.auth.uid
-              || !('adminId' in resource.data)
-              || resource.data.adminId == null
-              || resource.data.adminId == ''));
+      allow delete: if isSuperAdmin();
     }
 
     // ── bookings ──────────────────────────────────────────────────────────────

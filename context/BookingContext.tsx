@@ -3,14 +3,13 @@ import {
   addDoc,
   collection,
   doc,
-  getDocs,
   onSnapshot,
   query,
   updateDoc,
   where,
   Timestamp,
 } from 'firebase/firestore';
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,30 +119,44 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading]             = useState(false);
 
-  // ── Load guest's own bookings (one-time fetch) ──────────────────────────
-  const loadGuestBookings = async (guestId: string) => {
+  // ── Real-time listener for guest's own bookings ────────────────────────
+  // Stored as a ref so we can unsubscribe when the guestId changes or
+  // the component unmounts. Using onSnapshot instead of getDocs ensures
+  // the guest sees status changes (e.g. admin confirms) in real time.
+  const guestUnsubRef = React.useRef<(() => void) | null>(null);
+
+  const loadGuestBookings = useCallback(async (guestId: string) => {
+    // Tear down any existing guest listener before starting a new one
+    guestUnsubRef.current?.();
+
     setLoading(true);
-    try {
-      const q = query(
-        collection(firestore, BOOKINGS_COL),
-        where('guestId', '==', guestId)
-      );
-      const snap = await getDocs(q);
+    const q = query(
+      collection(firestore, BOOKINGS_COL),
+      where('guestId', '==', guestId)
+    );
+
+    guestUnsubRef.current = onSnapshot(q, (snap) => {
       const data = snap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Booking, 'id'>),
         createdAt: toISOString(d.data().createdAt),
       }));
-      // Merge with any optimistically added bookings not yet in Firestore
       setBookings((prev) => {
+        // Keep any optimistically added bookings not yet in Firestore
         const ids = new Set(data.map((b) => b.id));
         const optimistic = prev.filter((b) => !ids.has(b.id) && b.guestId === guestId);
         return [...data, ...optimistic];
       });
-    } finally {
       setLoading(false);
-    }
-  };
+    }, () => {
+      setLoading(false);
+    });
+  }, []);
+
+  // Tear down the guest listener when the provider unmounts
+  useEffect(() => {
+    return () => { guestUnsubRef.current?.(); };
+  }, []);
 
   // ── Real-time listener for admin bookings ───────────────────────────────
   const loadAdminBookings = useCallback((adminId: string): (() => void) => {

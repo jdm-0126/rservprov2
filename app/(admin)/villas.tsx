@@ -283,13 +283,16 @@ function VillaForm({ villa, isNew, onSave, onCancel }: {
 type Mode = { type: 'list' } | { type: 'edit'; villa: Villa } | { type: 'create' };
 
 export default function AdminVillasPage() {
-  const { user } = useAuth();
+  const { user, isAdmin, isSuperAdmin } = useAuth();
   const { villas, addVilla, updateVilla, deleteVilla } = useVillas();
   const router = useRouter();
   const [mode, setMode] = useState<Mode>({ type: 'list' });
 
-  // Only show villas owned by this admin (or unassigned static ones)
-  const myVillas = villas.filter((v) => !v.adminId || v.adminId === user?.id);
+  // Admins see their own villas + unassigned static ones.
+  // Superadmin sees all villas (for delete management).
+  const myVillas = isSuperAdmin
+    ? villas
+    : villas.filter((v) => !v.adminId || v.adminId === user?.id);
 
   const handleDelete = (villa: Villa) => {
     Alert.alert(
@@ -312,8 +315,8 @@ export default function AdminVillasPage() {
     );
   };
 
-  // ── Form view (create or edit) ───────────────────────────────────────────
-  if (mode.type === 'edit' || mode.type === 'create') {
+  // ── Form view — admin only (superadmin has no create/edit access) ────────
+  if ((mode.type === 'edit' || mode.type === 'create') && isAdmin) {
     const isNew = mode.type === 'create';
     const villa: Villa = isNew
       ? { ...BLANK_VILLA, id: '', adminId: user?.id ?? '' } as Villa
@@ -362,21 +365,25 @@ export default function AdminVillasPage() {
           <Ionicons name="arrow-back" size={20} color="#1a1a2e" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>My Villas</Text>
-        <TouchableOpacity style={s.addBtn} onPress={() => setMode({ type: 'create' })}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={s.addBtnText}>Add Villa</Text>
-        </TouchableOpacity>
+        {isAdmin && (
+          <TouchableOpacity style={s.addBtn} onPress={() => setMode({ type: 'create' })}>
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={s.addBtnText}>Add Villa</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={s.listBody} showsVerticalScrollIndicator={false}>
         {myVillas.length === 0 ? (
           <View style={s.empty}>
             <Ionicons name="home-outline" size={48} color="#d1d5db" />
-            <Text style={s.emptyText}>No villas yet. Tap "Add Villa" to create one.</Text>
-            <TouchableOpacity style={s.emptyAddBtn} onPress={() => setMode({ type: 'create' })}>
-              <Ionicons name="add-circle-outline" size={18} color="#fff" />
-              <Text style={s.emptyAddText}>Add Villa</Text>
-            </TouchableOpacity>
+            <Text style={s.emptyText}>No villas yet.{isAdmin ? ' Tap "Add Villa" to create one.' : ''}</Text>
+            {isAdmin && (
+              <TouchableOpacity style={s.emptyAddBtn} onPress={() => setMode({ type: 'create' })}>
+                <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                <Text style={s.emptyAddText}>Add Villa</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           myVillas.map((villa) => (
@@ -389,18 +396,22 @@ export default function AdminVillasPage() {
                   <Text style={s.metaChip}>🛏 {villa.bedrooms} rooms</Text>
                   <Text style={s.metaChip}>₱{(villa.price ?? 0).toLocaleString()}/night</Text>
                 </View>
-                {villa.packages && villa.packages.length > 0 && (
+                {Array.isArray(villa.packages) && villa.packages.length > 0 && (
                   <Text style={s.pkgCount}>{villa.packages.length} packages</Text>
                 )}
               </View>
               <View style={s.cardActions}>
-                <TouchableOpacity style={s.editBtn} onPress={() => setMode({ type: 'edit', villa })}>
-                  <Ionicons name="pencil-outline" size={16} color="#6366f1" />
-                  <Text style={s.editBtnText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(villa)}>
-                  <Ionicons name="trash-outline" size={16} color="#dc2626" />
-                </TouchableOpacity>
+                {isAdmin && (
+                  <TouchableOpacity style={s.editBtn} onPress={() => setMode({ type: 'edit', villa })}>
+                    <Ionicons name="pencil-outline" size={16} color="#6366f1" />
+                    <Text style={s.editBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+                {isSuperAdmin && (
+                  <TouchableOpacity style={s.deleteBtn} onPress={() => handleDelete(villa)}>
+                    <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))

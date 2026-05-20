@@ -1,0 +1,46 @@
+{
+  "buildCommand": "npx expo export --platform web",
+  "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "unsafe-none"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/",                          "destination": "/index.html" },
+    { "source": "/login",                     "destination": "/login.html" },
+    { "source": "/admin",                     "destination": "/admin.html" },
+    { "source": "/admins",                    "destination": "/admins.html" },
+    { "source": "/analytics",                 "destination": "/analytics.html" },
+    { "source": "/availability",              "destination": "/availability.html" },
+    { "source": "/bookings",                  "destination": "/bookings.html" },
+    { "source": "/profile",                   "destination": "/profile.html" },
+    { "source": "/properties",                "destination": "/properties.html" },
+    { "source": "/villas",                    "destination": "/villas.html" },
+    { "source": "/(guest)",                   "destination": "/(guest)/index.html" },
+    { "source": "/(guest)/index",             "destination": "/(guest)/index.html" },
+    { "source": "/(guest)/bookings",          "destination": "/(guest)/bookings.html" },
+    { "source": "/(guest)/profile",           "destination": "/(guest)/profile.html" },
+    { "source": "/(guest)/admin",             "destination": "/(guest)/admin.html" },
+    { "source": "/(admin)",                   "destination": "/(admin)/index.html" },
+    { "source": "/(admin)/index",             "destination": "/(admin)/index.html" },
+    { "source": "/(admin)/villas",            "destination": "/(admin)/villas.html" },
+    { "source": "/(admin)/bookings",          "destination": "/(admin)/bookings.html" },
+    { "source": "/(admin)/availability",      "destination": "/(admin)/availability.html" },
+    { "source": "/(superadmin)/:path*",       "destination": "/(superadmin)/:path*.html" },
+    { "source": "/booking/confirmation",      "destination": "/booking/confirmation.html" },
+    { "source": "/booking/:id",               "destination": "/booking/[id].html" },
+    { "source": "/villa/:id",                 "destination": "/villa/[id].html" },
+    { "source": "/(.*)",                      "destination": "/index.html" }
+  ]
+}
