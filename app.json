@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "ReservPro",
+    "slug": "reservpro-mobile",
+    "version": "1.0.0",
+    "scheme": "reservpro",
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "ios": {
+      "bundleIdentifier": "com.reservpro.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "@react-native-google-signin/google-signin",
+      "expo-image"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "72099f61-058a-4577-afbb-47fed2654662"
+      }
+    }
+  }
+}

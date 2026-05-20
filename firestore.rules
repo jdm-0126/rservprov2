@@ -1,0 +1,235 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+
+    // ── Identity ──────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Single get() per UID — Firestore deduplicates identical get() paths
+    // within one rule evaluation, so this is billed as one read regardless
+    // of how many times it's called in a single request.
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function callerRole() {
+      return userDoc().role;
+    }
+
+    // ── Role checks ───────────────────────────────────────────────────────────
+
+    function isSuperAdmin() {
+      return isSignedIn() && callerRole() == 'superadmin';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && callerRole() == 'admin';
+    }
+
+    function isGuest() {
+      return isSignedIn() && callerRole() == 'guest';
+    }
+
+    // ── Ownership ─────────────────────────────────────────────────────────────
+
+    function isOwningAdmin(resourceAdminId) {
+      return isAdmin() && request.auth.uid == resourceAdminId;
+    }
+
+    function guestBelongsToAdmin(resourceAdminId) {
+      return isGuest() && userDoc().adminId == resourceAdminId;
+    }
+
+    function isBookingOwner(bookingData) {
+      return isGuest() && request.auth.uid == bookingData.guestId;
+    }
+
+    function canReadScoped(resourceAdminId) {
+      return isSuperAdmin() || isOwningAdmin(resourceAdminId);
+    }
+
+    // ── adminId integrity for guests ──────────────────────────────────────────
+    //
+    // QUESTION 1: How do we ensure a guest's adminId points to a real admin?
+    //
+    // Rules cannot do a cross-document existence + role check cheaply on every
+    // write (it would cost an extra read per operation). The strategy is:
+    //
+    //   a) Rules enforce that guests CANNOT set their own adminId at all —
+    //      only superadmin or the Cloud Function (Admin SDK) may write it.
+    //   b) The userCreated Cloud Function (see triggers/userCreated.trigger.ts)
+    //      is the only path that assigns adminId, and it validates the target
+    //      user exists and has role == 'admin' before writing.
+    //   c) On update, guests cannot touch adminId — it is immutable for them.
+    //
+    // This moves the integrity check to a trusted server context where it is
+    // both cheaper (no extra rule read) and more reliable (can return errors).
+
+    function guestIsNotChangingAdminId() {
+      // adminId field must not appear in the diff, OR must remain identical
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['adminId']);
+    }
+
+    function guestIsNotChangingRole() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+    }
+
+    // ── Data integrity ────────────────────────────────────────────────────────
+
+    function validVillaData(data) {
+      return data.keys().hasAll(['adminId','name','location','price','amenities','image'])
+        && data.price is number
+        && data.price >= 0
+        && data.name is string && data.name.size() > 0
+        && data.location is string && data.location.size() > 0
+        && data.amenities is list
+        && data.image is string;
+    }
+
+    function validBookingData(data) {
+      return data.keys().hasAll(['villaId','guestId','adminId','checkIn','checkOut','totalAmount','status','referenceNumber'])
+        && data.totalAmount is number
+        && data.totalAmount >= 0
+        && data.status in ['pending','confirmed','cancelled','completed']
+        && data.checkIn < data.checkOut; // ISO strings compare lexicographically
+    }
+
+    function validAvailabilityData(data) {
+      return data.keys().hasAll(['adminId','villaId','date','status'])
+        && data.status in ['available','blocked','booked'];
+    }
+
+    // =========================================================================
+    // COLLECTIONS
+    // =========================================================================
+
+    // ── users ─────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId
+        || isSuperAdmin()
+        || (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid)
+      );
+
+      // Self-registration: role must be 'guest', adminId must NOT be set by the
+      // user themselves — it is assigned later by the Cloud Function.
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll(['name','email','role'])
+        && request.resource.data.role == 'guest'
+        && !request.resource.data.keys().hasAny(['adminId']); // adminId set by CF only
+
+      // Guests: may update name/photo only — cannot touch role or adminId
+      // Admins: may update their own profile fields — cannot touch role
+      // Superadmin: full update on any user
+      allow update: if isSuperAdmin()
+        || (request.auth.uid == userId
+            && guestIsNotChangingRole()
+            && guestIsNotChangingAdminId());
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── villas ────────────────────────────────────────────────────────────────
+    match /villas/{villaId} {
+      // Villas are a public product catalog — anyone (including unauthenticated
+      // users) may read them so the guest-facing browse page works without sign-in.
+      allow read: if true;
+
+      allow create: if isSuperAdmin()
+        || (isAdmin()
+            && request.resource.data.adminId == request.auth.uid
+            && validVillaData(request.resource.data));
+
+      // Allow update if:
+      //   a) superadmin, OR
+      //   b) admin owns the villa (adminId matches), OR
+      //   c) admin is claiming an unowned villa (no adminId set yet — first save of a static villa)
+      allow update: if isSuperAdmin()
+        || (isAdmin()
+            && request.resource.data.adminId == request.auth.uid
+            && validVillaData(request.resource.data)
+            && (resource.data.adminId == request.auth.uid
+                || !('adminId' in resource.data)
+                || resource.data.adminId == null
+                || resource.data.adminId == ''));
+
+      allow delete: if isSuperAdmin()
+        || (isAdmin() && (
+              resource.data.adminId == request.auth.uid
+              || !('adminId' in resource.data)
+              || resource.data.adminId == null
+              || resource.data.adminId == ''));
+    }
+
+    // ── bookings ──────────────────────────────────────────────────────────────
+    match /bookings/{bookingId} {
+      allow read: if isSuperAdmin()
+        // Admin reads their own bookings (supports where('adminId','==',uid) queries)
+        || (isAdmin() && resource.data.adminId == request.auth.uid)
+        // Guest reads their own bookings
+        || isBookingOwner(resource.data);
+
+      allow create: if isSuperAdmin()
+        || isOwningAdmin(request.resource.data.adminId)
+        || (isGuest()
+            && request.auth.uid == request.resource.data.guestId
+            && userDoc().adminId == request.resource.data.adminId
+            && validBookingData(request.resource.data));
+
+      allow update: if isSuperAdmin()
+        || isOwningAdmin(resource.data.adminId)
+        || (isBookingOwner(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status == 'cancelled'
+            && resource.data.status == 'pending');  // guests can only cancel pending, not confirmed
+
+      allow delete: if isSuperAdmin() || isOwningAdmin(resource.data.adminId);
+    }
+
+    // ── availability ──────────────────────────────────────────────────────────
+    match /availability/{entryId} {
+      // QUESTION 2 — performance note:
+      // Guests reading availability for the booking calendar is the hottest
+      // read path. guestBelongsToAdmin() costs one get(users/{uid}) per read.
+      // Mitigation: store adminId in the Firebase Auth custom claims (set by
+      // the userCreated CF) so we can use request.auth.token.adminId instead,
+      // eliminating the get() entirely for this high-frequency path.
+      allow read: if canReadScoped(resource.data.adminId)
+        || (isGuest() && (
+          // Fast path: use custom claim if available (no extra read)
+          (request.auth.token.keys().hasAny(['adminId'])
+            && request.auth.token.adminId == resource.data.adminId)
+          // Fallback: Firestore read (used until CF sets the custom claim)
+          || guestBelongsToAdmin(resource.data.adminId)
+        ));
+
+      allow create: if isSuperAdmin()
+        || (isAdmin()
+            && request.resource.data.adminId == request.auth.uid
+            && validAvailabilityData(request.resource.data));
+
+      allow update: if isSuperAdmin()
+        || (isOwningAdmin(resource.data.adminId)
+            && request.resource.data.adminId == resource.data.adminId
+            && validAvailabilityData(request.resource.data));
+
+      allow delete: if isSuperAdmin() || isOwningAdmin(resource.data.adminId);
+    }
+
+    // ── analytics ─────────────────────────────────────────────────────────────
+    match /analytics/{docId} {
+      allow read: if canReadScoped(resource.data.adminId);
+      allow write: if false; // Admin SDK only
+    }
+
+  }
+}

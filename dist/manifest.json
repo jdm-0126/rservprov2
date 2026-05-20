@@ -1,0 +1,9 @@
+{
+  "name": "RservPro v2",
+  "short_name": "RservPro",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0057d9",
+  "icons": []
+}
