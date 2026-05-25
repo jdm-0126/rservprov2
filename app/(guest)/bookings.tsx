@@ -1,5 +1,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { useBookings, type Booking, type BookingStatus } from '@/context/BookingContext';
+import { useVillas } from '@/context/VillaContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -266,11 +267,31 @@ const keyExtractor = (item: Booking) => item.id;
 export default function GuestBookingsPage() {
   const { user } = useAuth();
   const { bookings, loading, loadGuestBookings, cancelBooking } = useBookings();
+  const { villas } = useVillas();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected]     = useState<Booking | null>(null);
   const [filter, setFilter]         = useState<StatusFilter>('all');
   const [search, setSearch]         = useState('');
+
+  // Build a villaId → name lookup from the villas list so we can patch
+  // bookings that were saved without a villaName (or with a stale one).
+  const villaNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    villas.forEach((v) => map.set(v.id, v.name));
+    return map;
+  }, [villas]);
+
+  // Enrich bookings with villaName if it's missing or is just the raw ID
+  const enrichedBookings = useMemo(() => {
+    return bookings.map((b) => {
+      const resolvedName = villaNameMap.get(b.villaId);
+      if (resolvedName && (!b.villaName || b.villaName === b.villaId)) {
+        return { ...b, villaName: resolvedName };
+      }
+      return b;
+    });
+  }, [bookings, villaNameMap]);
 
   useFocusEffect(
     useCallback(() => {
@@ -308,7 +329,7 @@ export default function GuestBookingsPage() {
 
   const { myBookings, counts, filtered } = useMemo(() => {
     const mine = user?.id
-      ? bookings.filter((b) => b.guestId === user.id).sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
+      ? enrichedBookings.filter((b) => b.guestId === user.id).sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
       : [];
     const c = { all: mine.length, pending: 0, confirmed: 0, cancelled: 0 } as Record<StatusFilter, number>;
     for (const b of mine) c[b.status] = (c[b.status] ?? 0) + 1;
@@ -343,7 +364,7 @@ export default function GuestBookingsPage() {
     );
   }
 
-  if (loading && bookings.length === 0) {
+  if (loading && enrichedBookings.length === 0) {
     return (
       <SafeAreaView style={s.center}>
         <ActivityIndicator size="large" color="#2E7D32" />

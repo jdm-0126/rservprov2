@@ -5,8 +5,6 @@ import {
   onAuthStateChanged,
   signInWithCredential,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -90,16 +88,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSuperAdmin = user?.role === 'superadmin';
 
   useEffect(() => {
-    // On web, check for a pending redirect result first (signInWithRedirect flow).
-    // This runs once on mount — if the user was redirected back from Google,
-    // onAuthStateChanged will fire with the user automatically, but we still
-    // call getRedirectResult to surface any errors.
-    if (Platform.OS === 'web') {
-      getRedirectResult(firebaseAuth).catch(() => {
-        // Ignore — errors are surfaced via onAuthStateChanged or the sign-in call
-      });
-    }
-
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (fbUser) => {
       if (fbUser) {
         const appUser = await getOrCreateUserDoc(fbUser);
@@ -116,10 +104,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const provider = new GoogleAuthProvider();
 
     if (Platform.OS === 'web') {
-      // signInWithRedirect avoids the COOP/popup cross-origin issues on
-      // deployed web apps. The user is redirected to Google and back;
-      // onAuthStateChanged picks up the result automatically on return.
-      await signInWithRedirect(firebaseAuth, provider);
+      // signInWithPopup works on Vercel deployments when the COOP header is set
+      // to "same-origin-allow-popups" (configured in vercel.json).
+      // signInWithRedirect requires Firebase Hosting's /__/auth/handler which
+      // is not available on Vercel.
+      try {
+        await signInWithPopup(firebaseAuth, provider);
+      } catch (error: any) {
+        if (
+          error.code === 'auth/popup-closed-by-user' ||
+          error.code === 'auth/cancelled-popup-request'
+        ) return;
+        throw error;
+      }
     } else {
       try {
         const { GoogleSignin } = await import('@react-native-google-signin/google-signin');

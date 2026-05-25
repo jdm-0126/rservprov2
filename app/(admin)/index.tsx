@@ -46,7 +46,7 @@ export default function AdminDashboard() {
                 <Text style={styles.title}>Admin Panel</Text>
                 <Text style={styles.subtitle}>Manage villa listings</Text>
               </View>
-              <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/admin/villa-form')}>
+              <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/(admin)/villas')}>
                 <Ionicons name="add" size={22} color="#fff" />
                 <Text style={styles.addBtnText}>Add Villa</Text>
               </TouchableOpacity>
@@ -162,10 +162,10 @@ export default function AdminDashboard() {
               <Text style={styles.cardPrice}>₱{item.price.toLocaleString()}<Text style={styles.perNight}>/night</Text></Text>
             </View>
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.availBtn} onPress={() => router.push({ pathname: '/admin/availability', params: { id: item.id } })}>
+              <TouchableOpacity style={styles.availBtn} onPress={() => router.push('/(admin)/availability')}>
                 <Ionicons name="calendar-outline" size={18} color="#2E7D32" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.editBtn} onPress={() => router.push({ pathname: '/admin/villa-form', params: { id: item.id } })}>
+              <TouchableOpacity style={styles.editBtn} onPress={() => router.push('/(admin)/villas')}>
                 <Ionicons name="pencil-outline" size={18} color="#6366f1" />
               </TouchableOpacity>
               <TouchableOpacity style={styles.deleteBtn} onPress={() => confirmDelete(item)}>
